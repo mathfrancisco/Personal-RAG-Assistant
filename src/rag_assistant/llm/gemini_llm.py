@@ -13,9 +13,7 @@ from rag_assistant.domain.models import LLMResponse
 
 
 class GeminiLLM:
-    def __init__(
-        self, model: str, api_key: str | None, *, temperature: float = 0.0
-    ) -> None:
+    def __init__(self, model: str, api_key: str | None, *, temperature: float = 0.0) -> None:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         self.model_id = model

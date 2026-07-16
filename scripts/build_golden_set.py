@@ -24,16 +24,19 @@ def main(path: str = "evaluation/golden_set.json") -> int:
     out_corpus = [i for i in items if i.out_of_corpus]
 
     missing_src = [i.question for i in in_corpus if not i.expected_source]
-    print(f"Golden set: {len(items)} perguntas ({len(in_corpus)} no corpus, "
-          f"{len(out_corpus)} fora do corpus).")
+    print(
+        f"Golden set: {len(items)} perguntas ({len(in_corpus)} no corpus, "
+        f"{len(out_corpus)} fora do corpus)."
+    )
     if missing_src:
         print(f"[AVISO] {len(missing_src)} perguntas do corpus sem `expected_source`:")
         for q in missing_src:
             print(f"   - {q}")
         return 1
     if len(items) < _MIN_RECOMMENDED:
-        print(f"[INFO] Recomendado >= {_MIN_RECOMMENDED} perguntas (SDD Fase 5); "
-              f"atual: {len(items)}.")
+        print(
+            f"[INFO] Recomendado >= {_MIN_RECOMMENDED} perguntas (SDD Fase 5); atual: {len(items)}."
+        )
     print("[OK] Schema valido.")
     return 0
 

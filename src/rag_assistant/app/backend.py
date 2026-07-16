@@ -58,9 +58,7 @@ class ChatHistory:
         self.messages.append({"role": "user", "content": text})
 
     def add_assistant(self, text: str, sources: list[RetrievedChunk] | None = None) -> None:
-        self.messages.append(
-            {"role": "assistant", "content": text, "sources": sources or []}
-        )
+        self.messages.append({"role": "assistant", "content": text, "sources": sources or []})
 
     def clear(self) -> None:
         self.messages.clear()

@@ -1,4 +1,4 @@
-.PHONY: install hello config test lint fmt ingest ask eval ollama-up ollama-pull ollama-down
+.PHONY: install hello config test cov test-local lint fmt ingest ask eval ollama-up ollama-pull ollama-down
 
 install:
 	uv sync --dev
@@ -23,6 +23,12 @@ config:
 
 test:
 	uv run pytest
+
+cov:
+	uv run pytest --cov=rag_assistant --cov-report=term-missing
+
+test-local:
+	uv run pytest -m local_only
 
 lint:
 	uv run ruff check .

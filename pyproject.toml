@@ -19,7 +19,12 @@ dependencies = [
     "pypdf>=5.0",
     "python-docx>=1.1",
     "streamlit>=1.40",
+    "structlog>=24.4",
 ]
+
+[project.optional-dependencies]
+# Observabilidade em nuvem (opcional): sem isto, os traces caem para JSON local.
+langfuse = ["langfuse>=2.0"]
 
 [project.scripts]
 rag = "rag_assistant.cli:app"

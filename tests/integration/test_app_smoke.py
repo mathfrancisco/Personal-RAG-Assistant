@@ -14,9 +14,7 @@ def test_app_renders_without_exception(tmp_path, monkeypatch):
     monkeypatch.setenv("CACHE_PATH", str(tmp_path / "cache"))
     monkeypatch.setenv("RAG_MODE", "local")
 
-    at = AppTest.from_file(
-        "src/rag_assistant/app/streamlit_app.py", default_timeout=60
-    ).run()
+    at = AppTest.from_file("src/rag_assistant/app/streamlit_app.py", default_timeout=60).run()
 
     assert not at.exception
     assert at.title[0].value.endswith("Personal RAG Assistant")

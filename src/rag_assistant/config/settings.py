@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     chroma_path: str = "./data/chroma"
     cache_path: str = "./data/cache"
     answer_cache_path: str = "./data/answer_cache"
+    traces_path: str = "./data/traces"
 
     golden_set_path: str = "evaluation/golden_set.json"
     eval_report_dir: str = "evaluation/reports"

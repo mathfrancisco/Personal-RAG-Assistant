@@ -13,8 +13,9 @@ class CountingLLM:
 
     def generate(self, prompt: str) -> LLMResponse:  # noqa: ARG002
         self.calls += 1
-        return LLMResponse(text="Resposta [1].", model=self.model_id,
-                           input_tokens=100, output_tokens=20)
+        return LLMResponse(
+            text="Resposta [1].", model=self.model_id, input_tokens=100, output_tokens=20
+        )
 
     def stream(self, prompt):  # noqa: ARG002
         yield "Resposta [1]."

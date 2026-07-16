@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from rag_assistant.config.settings import LLMProvider, Settings
+from rag_assistant.config.settings import LLMProvider, RagMode, Settings
 from rag_assistant.domain.models import LLMResponse
 from rag_assistant.domain.ports import LLMProvider as LLMPort
+
+_CLOUD_LLM = {LLMProvider.gemini, LLMProvider.openai, LLMProvider.anthropic}
 
 
 def _build(provider: LLMProvider, s: Settings) -> LLMPort:
@@ -47,6 +49,11 @@ class FallbackLLM:
 
 
 def build_llm(settings: Settings) -> LLMPort:
+    if settings.rag_mode is RagMode.local and settings.llm_provider in _CLOUD_LLM:
+        raise ValueError(
+            f"modo local proíbe LLM de nuvem ({settings.llm_provider.value}); "
+            "use LLM_PROVIDER=ollama ou RAG_MODE=hybrid."
+        )
     primary = _build(settings.llm_provider, settings)
     if settings.fallback_enabled and settings.llm_fallback_provider != settings.llm_provider:
         secondary = _build(settings.llm_fallback_provider, settings)

@@ -13,9 +13,7 @@ from rag_assistant.domain.models import Chunk, RawDocument
 
 
 def chunk_document(doc: RawDocument, *, chunk_size: int, chunk_overlap: int) -> list[Chunk]:
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=chunk_overlap
-    )
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     parts = [p for p in splitter.split_text(doc.text) if p.strip()]
     return [
         Chunk(

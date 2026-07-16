@@ -1,6 +1,8 @@
-"""CLI do Personal RAG Assistant. Os comandos ganham corpo nas fases seguintes."""
+"""CLI do Personal RAG Assistant."""
 
 from __future__ import annotations
+
+import functools
 
 import typer
 
@@ -10,6 +12,47 @@ app = typer.Typer(
     add_completion=False,
     help="Personal RAG Assistant — RAG local com citação de fontes, custo $0.",
 )
+
+
+def friendly_errors(fn):
+    """Converte falhas comuns em mensagens claras (sem despejar traceback)."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        from rag_assistant.common.ratelimit import is_rate_limit_error
+        from rag_assistant.domain.exceptions import DocumentLoadError, EmbeddingMismatchError
+
+        try:
+            return fn(*args, **kwargs)
+        except typer.Exit:
+            raise
+        except EmbeddingMismatchError as exc:
+            typer.secho(f"Erro de embedding: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=2) from exc
+        except (DocumentLoadError, FileNotFoundError) as exc:
+            typer.secho(f"Documento/caminho inválido: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=2) from exc
+        except Exception as exc:  # noqa: BLE001 - último recurso: mensagem amigável
+            if is_rate_limit_error(exc):
+                typer.secho(
+                    "Quota do free tier esgotada (429). Tente mais tarde ou use RAG_MODE=local.",
+                    fg=typer.colors.YELLOW,
+                    err=True,
+                )
+                raise typer.Exit(code=3) from exc
+            msg = str(exc).lower()
+            if "connection" in msg or "refused" in msg or "11434" in msg:
+                typer.secho(
+                    "Não consegui falar com o Ollama. Rode `make ollama-up` "
+                    "(ou verifique OLLAMA_BASE_URL).",
+                    fg=typer.colors.YELLOW,
+                    err=True,
+                )
+                raise typer.Exit(code=3) from exc
+            typer.secho(f"Erro: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1) from exc
+
+    return wrapper
 
 
 @app.command()
@@ -27,6 +70,7 @@ def config() -> None:
 
 
 @app.command()
+@friendly_errors
 def ingest(path: str) -> None:
     """Indexa uma pasta (ou arquivo) de documentos no vector store."""
     from rag_assistant.common.cache import EmbeddingCache
@@ -57,6 +101,7 @@ def ingest(path: str) -> None:
 
 
 @app.command()
+@friendly_errors
 def search(
     query: str,
     k: int = typer.Option(None, "--k", help="Nº de trechos (default: TOP_K da config)."),
@@ -84,6 +129,7 @@ def search(
 
 
 @app.command()
+@friendly_errors
 def ask(
     query: str,
     stream: bool = typer.Option(False, "--stream", help="Imprime a resposta token a token."),
@@ -92,6 +138,7 @@ def ask(
     """Responde em linguagem natural, ancorado nos documentos e citando a fonte."""
     from rag_assistant.embeddings.factory import build_embedding_provider
     from rag_assistant.llm.factory import build_llm
+    from rag_assistant.observability.tracer import build_tracer
     from rag_assistant.rag.citations import cited_sources
     from rag_assistant.rag.pipeline import RAGPipeline
     from rag_assistant.retrieval.retriever import Retriever
@@ -101,7 +148,7 @@ def ask(
     embedder = build_embedding_provider(s)
     store = ChromaVectorStore(s.chroma_path, s.collection_name, s.embedding_model_id)
     retriever = Retriever(embedder, store, s.top_k)
-    pipeline = RAGPipeline(retriever, build_llm(s))
+    pipeline = RAGPipeline(retriever, build_llm(s), tracer=build_tracer(s))
 
     if stream:
         tokens, chunks = pipeline.ask_stream(query, k)
@@ -124,6 +171,7 @@ def ask(
 
 
 @app.command("eval")
+@friendly_errors
 def eval_(
     golden: str = typer.Option(None, "--golden", help="Caminho do golden set JSON."),
     no_cache: bool = typer.Option(False, "--no-cache", help="Ignora o cache de respostas."),

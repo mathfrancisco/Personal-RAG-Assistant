@@ -105,9 +105,7 @@ def ingest_path(
         store.delete_by_source(source)
         chunks: list[Chunk] = []
         for raw in raw_docs:
-            chunks.extend(
-                chunk_document(raw, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-            )
+            chunks.extend(chunk_document(raw, chunk_size=chunk_size, chunk_overlap=chunk_overlap))
         if not chunks:
             report.files_failed += 1
             log(f"[erro] {path.name}: sem texto para indexar")
