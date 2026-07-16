@@ -89,9 +89,43 @@ def search(
 
 
 @app.command()
-def ask(query: str) -> None:
-    """(Fase 3) Responde com base nos documentos, citando a fonte."""
-    _todo("ask", 3)
+def ask(
+    query: str,
+    stream: bool = typer.Option(False, "--stream", help="Imprime a resposta token a token."),
+    k: int = typer.Option(None, "--k", help="Nº de trechos de contexto (default: TOP_K)."),
+) -> None:
+    """Responde em linguagem natural, ancorado nos documentos e citando a fonte."""
+    from rag_assistant.embeddings.factory import build_embedding_provider
+    from rag_assistant.llm.factory import build_llm
+    from rag_assistant.rag.citations import cited_sources
+    from rag_assistant.rag.pipeline import RAGPipeline
+    from rag_assistant.retrieval.retriever import Retriever
+    from rag_assistant.vectorstore.chroma_store import ChromaVectorStore
+
+    s = get_settings()
+    embedder = build_embedding_provider(s)
+    store = ChromaVectorStore(s.chroma_path, s.collection_name, s.embedding_model_id)
+    retriever = Retriever(embedder, store, s.top_k)
+    pipeline = RAGPipeline(retriever, build_llm(s))
+
+    if stream:
+        tokens, chunks = pipeline.ask_stream(query, k)
+        buffer: list[str] = []
+        for tok in tokens:
+            buffer.append(tok)
+            typer.echo(tok, nl=False)
+        typer.echo("")
+        sources = cited_sources("".join(buffer), chunks) if chunks else []
+    else:
+        answer = pipeline.ask(query, k)
+        typer.echo(answer.text)
+        sources = answer.sources
+
+    if sources:
+        typer.echo("\nFontes:")
+        for i, src in enumerate(sources, start=1):
+            loc = src.source + (f", p.{src.page}" if src.page is not None else "")
+            typer.echo(f"  [{i}] {loc} · chunk #{src.chunk_index}")
 
 
 @app.command("eval")

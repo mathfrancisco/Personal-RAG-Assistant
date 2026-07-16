@@ -45,3 +45,24 @@ class RetrievedChunk:
     chunk_index: int
     score: float
     page: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LLMResponse:
+    """Resposta de um LLM + contabilidade de tokens (para métricas/custo)."""
+
+    text: str
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class Answer:
+    """Resposta final do RAG: texto + fontes citadas + resposta bruta do LLM."""
+
+    text: str
+    sources: list[RetrievedChunk]
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0

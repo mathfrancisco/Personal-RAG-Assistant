@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Protocol, runtime_checkable
 
-from rag_assistant.domain.models import EmbeddedChunk, RetrievedChunk
+from rag_assistant.domain.models import EmbeddedChunk, LLMResponse, RetrievedChunk
 
 
 @runtime_checkable
@@ -26,4 +27,15 @@ class VectorStore(Protocol):
 
     def known_sources(self) -> dict[str, str]:
         """Mapa source -> doc_hash já indexado (para reindex incremental)."""
+        ...
+
+
+@runtime_checkable
+class LLMProvider(Protocol):
+    model_id: str
+
+    def generate(self, prompt: str) -> LLMResponse: ...
+
+    def stream(self, prompt: str) -> Iterator[str]:
+        """Emite a resposta token a token (para saída progressiva)."""
         ...
