@@ -33,8 +33,32 @@ def _todo(name: str, phase: int) -> None:
 
 @app.command()
 def ingest(path: str) -> None:
-    """(Fase 1) Indexa uma pasta de documentos."""
-    _todo("ingest", 1)
+    """Indexa uma pasta (ou arquivo) de documentos no vector store."""
+    from rag_assistant.common.cache import EmbeddingCache
+    from rag_assistant.embeddings.factory import build_embedding_provider
+    from rag_assistant.ingestion.pipeline import ingest_path
+    from rag_assistant.vectorstore.chroma_store import ChromaVectorStore
+
+    s = get_settings()
+    embedder = build_embedding_provider(s)
+    store = ChromaVectorStore(s.chroma_path, s.collection_name, s.embedding_model_id)
+    cache = EmbeddingCache(s.cache_path, s.embedding_model_id)
+    typer.echo(
+        f"Indexando '{path}' | embedder={s.embedding_model_id} | coleção={s.collection_name}"
+    )
+    try:
+        report = ingest_path(
+            path,
+            embedder=embedder,
+            store=store,
+            chunk_size=s.chunk_size,
+            chunk_overlap=s.chunk_overlap,
+            cache=cache,
+            log=typer.echo,
+        )
+    finally:
+        cache.close()
+    typer.echo(report.as_line())
 
 
 @app.command()
