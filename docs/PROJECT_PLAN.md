@@ -41,7 +41,7 @@ Toda fase segue o mesmo esqueleto, para não faltar nada:
 
 | Fase | Nome | Entrega central | Marco | Duração |
 |------|------|-----------------|-------|---------|
-| 0 | Fundação & Setup | Stack instalada, repo, "hello LLM" nos 3 providers | Ambiente prova conceito | ~2 sem |
+| 0 | Fundação & Setup | Stack instalada, repo, "hello LLM" (Ollama primário + Gemini fallback) | Ambiente prova conceito | ~2 sem |
 | 1 | Ingestão | Documentos viram chunks indexados (com cache) | `rag ingest` funciona | ~2 sem |
 | 2 | Retrieval | Busca semântica top-k funcionando | `rag search` coerente | ~1,5 sem |
 | 3 | Geração + Chat | Resposta ancorada com citação (CLI) | `rag ask` com fonte | ~2 sem |
@@ -60,7 +60,7 @@ Toda fase segue o mesmo esqueleto, para não faltar nada:
 
 **Depende de:** nada (ponto de partida).
 
-**Bibliotecas:** `uv`, `ruff`, `pytest`, `pre-commit`, `pydantic-settings`, `tenacity` (backoff), `python-dotenv` (implícito no pydantic-settings), `langchain-google-genai`, `langchain-groq`, `langchain-ollama`.
+**Bibliotecas:** `uv`, `ruff`, `pytest`, `pre-commit`, `pydantic-settings`, `tenacity` (backoff), `python-dotenv` (implícito no pydantic-settings), `langchain-ollama`, `langchain-google-genai`.
 
 **Tarefas**
 
@@ -71,23 +71,23 @@ Toda fase segue o mesmo esqueleto, para não faltar nada:
 - [ ] `.pre-commit-config.yaml`: `ruff` (lint + format) + checagens básicas (trailing-whitespace, end-of-file-fixer).
 - [ ] `.github/workflows/ci.yml`: `uv sync` → `ruff check` → `pytest` (por enquanto 1 teste dummy verde).
 
-*Providers (todos free)*
-- [ ] Instalar Ollama; `ollama pull llama3.2` + `ollama pull nomic-embed-text`; **medir VRAM** e confirmar que cabe na RTX 5060 8GB.
-- [ ] Criar chave grátis no **Google AI Studio** (Gemini). Opcional: **Groq** (fallback) e **Langfuse** (observabilidade).
-- [ ] `.env.example` versionado (sem valores) + `.env` local preenchido.
+*Providers (local-first, $0)*
+- [ ] Subir **Ollama via Docker** (`make ollama-up`, ou `docker compose up -d`) e baixar modelos (`make ollama-pull` → `llama3.2:3b` + `nomic-embed-text`); **medir VRAM** e confirmar que cabe na RTX 5060 8GB.
+- [ ] (Opcional) Criar chave grátis no **Google AI Studio** (Gemini) p/ o fallback do modo `hybrid`. Opcional também: **Langfuse** (observabilidade).
+- [ ] `.env.example` versionado (sem valores) + `.env` local preenchido (por padrão roda 100% local, sem chave).
 
 *Config e resiliência (bases que todas as fases usam)*
-- [ ] `config/settings.py` (pydantic-settings): lê e **valida** `.env` (provider válido, modelos pinados, paths). Falha cedo com mensagem clara se faltar chave no modo cloud.
+- [ ] `config/settings.py` (pydantic-settings): lê e **valida** `.env` (provider válido, modelos pinados, paths). Avisa/falha cedo se o modo for `hybrid` mas faltar `GEMINI_API_KEY` (fallback desativado); no modo `local` não exige nenhuma chave.
 - [ ] `common/ratelimit.py`: decorator/helper com `tenacity` — throttle de RPM + backoff exponencial em `429`/`ResourceExhausted`.
 
 *Prova de conceito*
-- [ ] `scripts/hello.py`: manda o mesmo prompt para **Gemini, Groq e Ollama** e imprime cada resposta + tokens.
+- [ ] `scripts/hello.py`: manda o mesmo prompt para **Ollama (primário) e Gemini (fallback)** e imprime cada resposta + tokens.
 
 **Comandos**
 ```bash
 uv sync
-cp .env.example .env      # preencher GEMINI_API_KEY (e opcionalmente GROQ_API_KEY)
-ollama pull llama3.2 && ollama pull nomic-embed-text
+make ollama-up && make ollama-pull   # sobe Ollama (Docker) + baixa llama3.2:3b e nomic-embed-text
+cp .env.example .env                 # opcional: GEMINI_API_KEY p/ o fallback do modo hybrid
 uv run python scripts/hello.py
 ```
 
@@ -99,7 +99,7 @@ uv run python scripts/hello.py
 
 **DoD**
 - ✅ `uv sync` funciona do zero em máquina limpa.
-- ✅ Cada provider (Gemini, Groq, Ollama) responde a um prompt.
+- ✅ Ollama (primário) e Gemini (fallback opcional) respondem a um prompt.
 - ✅ Um `429` do free tier é tratado com backoff (não derruba o script).
 - ✅ `ruff` e `pytest` verdes no CI.
 - ✅ Nenhuma chave commitada (`git log -p` limpo).
@@ -208,7 +208,7 @@ uv run rag search "Qual o prazo de entrega do contrato X?"
 
 ## 💬 Fase 3 — Geração + Chat (CLI)
 
-**Objetivo:** resposta em linguagem natural **ancorada** nos trechos, com **citação** — em cloud (Gemini) e local (Ollama).
+**Objetivo:** resposta em linguagem natural **ancorada** nos trechos, com **citação** — no modo `local` (Ollama) e `hybrid` (Ollama primário + fallback Gemini).
 
 **Depende de:** Fase 2 (retrieval).
 
@@ -218,7 +218,7 @@ uv run rag search "Qual o prazo de entrega do contrato X?"
 
 *Ports + adapters de LLM*
 - [ ] `domain/ports.py`: `LLMProvider.generate(prompt, *, stream)` + `LLMResponse(text, input_tokens, output_tokens, model)`.
-- [ ] `llm/gemini_llm.py` (`gemini-2.5-flash-lite`), `llm/groq_llm.py` (fallback), `llm/ollama_llm.py` + `llm/factory.py`. Adapters de nuvem com `ratelimit`; fallback Gemini→Groq quando a quota (RPD) estoura.
+- [ ] `llm/ollama_llm.py` (Llama 3.2, local — **primário**), `llm/gemini_llm.py` (`gemini-2.5-flash-lite` — **fallback de geração**) + `llm/factory.py`. O adapter de nuvem (Gemini) usa `ratelimit` (throttle RPM + backoff 429); fallback Ollama→Gemini quando o Ollama está indisponível (modo `hybrid` + chave).
 
 *Núcleo RAG*
 - [ ] `rag/prompts.py`: template com regras — "responda só com base no contexto", "se não estiver no contexto, diga que não sabe", "cite pelo número `[n]`". Contexto injetado como blocos numerados.
@@ -239,17 +239,17 @@ LLM_PROVIDER=ollama uv run rag ask "Resuma o documento Y"   # troca por env
 - Unit `test_prompts.py`: template injeta contexto numerado e as regras.
 - Integração: `ask` sobre doc de exemplo retorna resposta com ao menos uma fonte; pergunta fora do corpus retorna "não encontrei".
 
-**Entregáveis:** `rag ask` responde citando arquivo/trecho, em cloud e local.
+**Entregáveis:** `rag ask` responde citando arquivo/trecho, nos modos `local` e `hybrid`.
 
 **DoD**
 - ✅ Resposta sempre traz ao menos uma fonte quando há contexto.
 - ✅ Sem contexto ⇒ "não encontrei nos documentos" (sem alucinar).
-- ✅ Trocar `LLM_PROVIDER` entre gemini/groq/ollama só no `.env` funciona.
+- ✅ Trocar `LLM_PROVIDER` entre ollama/gemini só no `.env` funciona.
 - ✅ Streaming imprime tokens progressivamente.
 
 **Riscos da fase**
 - ⚠️ Modelo ignora a regra de citar → reforçar no template + validar no código que há fonte; se faltar, marcar a resposta como "sem fonte" em vez de fingir.
-- ⚠️ Quota do Gemini no meio de uma sessão → fallback Groq ou trocar para Ollama.
+- ⚠️ Ollama indisponível no meio de uma sessão → fallback Gemini (modo `hybrid` + chave); quota do Gemini estourar → volta ao Ollama local (primário, sem quota).
 
 **Como demonstrar:** print/asciinema do `rag ask` respondendo com `[1] contrato.pdf, p.3`, e o mesmo comando rodando em Ollama (offline).
 
@@ -267,9 +267,9 @@ LLM_PROVIDER=ollama uv run rag ask "Resuma o documento Y"   # troca por env
 - [ ] `app/streamlit_app.py` com abas **Chat**, **Ingestão**, **Métricas** (placeholder até a Fase 5).
 - [ ] Chat: histórico da sessão (`st.session_state`) + **streaming** da resposta.
 - [ ] Fontes exibidas de forma expansível (`st.expander`) mostrando o trecho citado.
-- [ ] Sidebar: seletor de **modo** (nuvem/local) e de **provider**; refletir a config sem reiniciar o app.
+- [ ] Sidebar: seletor de **modo** (`local`/`hybrid`) e de **provider**; refletir a config sem reiniciar o app.
 - [ ] Aba Ingestão: selecionar pasta / upload + botão "Indexar" com feedback de progresso.
-- [ ] Indicador de quota/provider ativo (ex.: "usando Gemini free · fallback Groq").
+- [ ] Indicador de provider ativo (ex.: "usando Ollama local · fallback Gemini se `hybrid`").
 
 **Comandos**
 ```bash
@@ -321,7 +321,7 @@ uv run rag eval --provider ollama
 - Unit `test_metrics.py`: Recall@5 com casos conhecidos (fonte no top-5 / fora); cálculo de custo por tokens.
 - Determinismo: rodar o eval duas vezes com cache dá o mesmo resultado e **zero** novas chamadas na segunda.
 
-**Entregáveis:** relatório com números reais nuvem (Gemini) vs local (Ollama).
+**Entregáveis:** relatório com números reais local (Ollama) vs fallback (Gemini).
 
 **DoD**
 - ✅ `rag eval` produz Recall@5, tokens/query, custo *calculado* e latência média (custo real = $0).
@@ -350,7 +350,7 @@ uv run rag eval --provider ollama
 - [ ] `observability/logging.py`: logging estruturado (`structlog`), JSON em prod, legível em dev.
 - [ ] Fechar cobertura de testes de **domínio** e **RAGPipeline** (unit + contract). **CI só com fakes — sem API real nem quota.**
 - [ ] Endurecer **modo 100% local**: teste/marcação que garante zero chamadas de rede (mock de socket ou flag que proíbe adapters de nuvem).
-- [ ] Endurecer **resiliência de quota**: testes do backoff/retry e do fallback Gemini→Groq (simulando `429`).
+- [ ] Endurecer **resiliência de quota**: testes do backoff/retry e do fallback Ollama→Gemini (simulando Ollama indisponível + `429` do Gemini).
 - [ ] Tratamento de erros amigável: arquivo corrompido, provider fora do ar, quota esgotada, Ollama não rodando.
 - [ ] CI: `ruff` + `pytest` + cobertura em cada PR (badge no README).
 
@@ -362,7 +362,7 @@ uv run pytest -m local_only     # garante zero rede
 
 **Testes desta fase**
 - Unit/contract fecham as camadas de domínio e pipeline.
-- Teste de resiliência: `429` simulado → backoff → fallback Groq.
+- Teste de resiliência: Ollama indisponível → fallback Gemini; `429` simulado → backoff.
 - Teste "sem rede": modo local não abre socket externo.
 
 **Entregáveis:** traces visíveis (Langfuse ou JSON local) + suíte verde no CI.
@@ -370,7 +370,7 @@ uv run pytest -m local_only     # garante zero rede
 **DoD**
 - ✅ Cada query gera um trace consultável (mesmo sem Langfuse).
 - ✅ Modo local não faz nenhuma requisição de rede (verificado por teste).
-- ✅ Fallback de quota testado (429 → Groq).
+- ✅ Fallback testado (Ollama off → Gemini; 429 → backoff).
 - ✅ CI verde sem tocar em API paga/quota (fakes). Cobertura reportada.
 
 **Riscos da fase**
@@ -393,7 +393,7 @@ uv run pytest -m local_only     # garante zero rede
 - [ ] Métricas reais preenchidas no README (tabela da Fase 5).
 - [x] **Docs em `docs/`** (`SDD.md`, `DIAGRAMS.md`, `PROJECT_STRUCTURE.md`, `PROJECT_PLAN.md`, `OVERVIEW.md`), só o `README.md` na raiz. Falta criar `docs/EVALUATION.md` (Fase 5). Links relativos ajustados.
 - [ ] Revisar textos, badges (CI, cobertura, licença), licença.
-- [ ] Post técnico no LinkedIn: o que construiu, decisões (Ports&Adapters, free-tier-first), métricas.
+- [ ] Post técnico no LinkedIn: o que construiu, decisões (Ports&Adapters, local-first com Ollama), métricas.
 - [ ] Atualizar LinkedIn/headline: "AI Engineer | Building with LLMs".
 - [ ] (Opcional, recomendado p/ público US) **versão EN do README**.
 
@@ -408,7 +408,7 @@ uv run python scripts/check_links.py   # (opcional)
 **DoD (gate de saída do 1º semestre)**
 - ✅ Repositório público com README detalhado e **demo (GIF)**.
 - ✅ Métricas publicadas (Gemini vs Ollama).
-- ✅ Funciona em modo nuvem e local, a **custo $0**.
+- ✅ Funciona nos modos `local` e `hybrid`, a **custo $0**.
 - ✅ CI verde + cobertura.
 - ✅ Post de divulgação feito.
 
@@ -467,7 +467,7 @@ Só considere o V1 fechado quando **tudo** abaixo for verdade (espelha o doc 00)
 - [ ] Repositório público com README detalhado (screenshots + GIF).
 - [ ] Ingestão funciona para PDF, MD, TXT e DOCX.
 - [ ] Chat responde com citação da fonte (arquivo + trecho).
-- [ ] Funciona em dois modos: nuvem (Gemini free) e 100% local (Ollama).
+- [ ] Funciona em dois modos: `local` (100% Ollama) e `hybrid` (Ollama + fallback Gemini).
 - [ ] Métricas publicadas: latência, tokens/query, custo calculado, Recall@5 sobre 30 perguntas.
 - [ ] Testes automatizados + CI verde (sem gastar quota).
 - [ ] Resiliência de quota (backoff, cache, fallback) testada.

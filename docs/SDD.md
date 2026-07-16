@@ -53,13 +53,13 @@ Aplicação Python de linha única de responsabilidade: **transformar uma coleç
 | Ator | Papel |
 |------|-------|
 | **Usuário (Matheus)** | Ingere documentos, faz perguntas, lê métricas |
-| **Provedores de LLM/embedding** | Google Gemini (free tier), Groq (free, fallback), Ollama (local). OpenAI/Anthropic = adapters opcionais |
+| **Provedores de LLM/embedding** | Ollama (local, primário), Google Gemini (free tier, fallback de geração). OpenAI/Anthropic = adapters opcionais |
 | **Vector store** | ChromaDB (local) |
 | **Observabilidade** | Langfuse (traces) — **opcional**; fallback para traces JSON locais |
 
 ### 2.3 Restrições
 - **Hardware local:** GPU RTX 5060 8GB → modelos locais precisam caber (Llama 3.2 3B, nomic-embed-text).
-- **Custo:** projeto roda a **$0** — nuvem via free tiers (Gemini, Groq). A restrição real não é dinheiro, é **quota** (RPD/RPM/TPM do free tier) → precisa de throttle, backoff e cache.
+- **Custo:** projeto roda a **$0** — 100% local via Ollama (sem quota) por padrão. O fallback opcional Gemini (modo `hybrid`) usa free tier → é ali, e só ali, que aparece a restrição de **quota** (RPD/RPM/TPM) → throttle, backoff e cache no caminho do fallback.
 - **Tempo:** projeto de 1 semestre, feito em paralelo à faculdade e ao trabalho → escopo apertado.
 - **Privacidade:** documentos podem ser pessoais → modo 100% local obrigatório.
 
@@ -82,7 +82,7 @@ Aplicação Python de linha única de responsabilidade: **transformar uma coleç
 | RF-04 | Recuperar top-k chunks por similaridade para uma query | Alta |
 | RF-05 | Gerar resposta ancorada nos chunks recuperados | Alta |
 | RF-06 | Citar a fonte (arquivo + trecho) de cada resposta | Alta |
-| RF-07 | Suportar modo nuvem (Gemini free; Groq de fallback) e modo local (Ollama) via config | Alta |
+| RF-07 | Suportar modo `hybrid` (Ollama primário + Gemini fallback) e modo `local` (Ollama offline) via config | Alta |
 | RF-08 | Interface de chat com histórico da sessão | Alta |
 | RF-09 | Streaming da resposta (token a token) | Média |
 | RF-10 | Reindexar / atualizar a base sem reprocessar o que não mudou (hash) | Média |
@@ -93,7 +93,7 @@ Aplicação Python de linha única de responsabilidade: **transformar uma coleç
 
 | ID | Requisito | Meta V1 |
 |----|-----------|---------|
-| RNF-01 | **Latência** de query (retrieval + geração) | < 5 s (nuvem), medir local |
+| RNF-01 | **Latência** de query (retrieval + geração) | medir local (Ollama); < 5 s no fallback Gemini |
 | RNF-02 | **Custo** por query | Real = **$0** (free tier); reportar custo *calculado* (USD equivalente no tier pago) + tokens/query |
 | RNF-03 | **Qualidade** de recuperação | Recall@5 ≥ 0,80 no golden set |
 | RNF-04 | **Privacidade** | Modo local não faz nenhuma chamada externa |
@@ -108,7 +108,7 @@ Aplicação Python de linha única de responsabilidade: **transformar uma coleç
 ## 4. Arquitetura
 
 ### 4.1 Estilo arquitetural
-**Arquitetura em camadas + portas/adaptadores (ports & adapters, "hexagonal light")**. O núcleo (chunking, orquestração RAG, avaliação) não conhece *qual* provedor concreto de embedding/LLM/vector store está por trás — ele fala com **interfaces**. Adaptadores concretos (Gemini, Groq, Ollama, Chroma) implementam essas interfaces. Isso é o que torna a migração para o V2 uma troca de plugue.
+**Arquitetura em camadas + portas/adaptadores (ports & adapters, "hexagonal light")**. O núcleo (chunking, orquestração RAG, avaliação) não conhece *qual* provedor concreto de embedding/LLM/vector store está por trás — ele fala com **interfaces**. Adaptadores concretos (Ollama, Gemini, Chroma) implementam essas interfaces. Isso é o que torna a migração para o V2 uma troca de plugue.
 
 ### 4.2 Camadas
 
@@ -135,9 +135,9 @@ Aplicação Python de linha única de responsabilidade: **transformar uma coleç
 | **EmbeddingProvider** (Port) | Transformar texto em vetor | Adaptador Gemini/Ollama |
 | **VectorStore** (Port) | Persistir e buscar vetores | Adaptador Chroma/pgvector |
 | **Retriever** | Buscar top-k chunks para uma query | VectorStore + EmbeddingProvider |
-| **LLMProvider** (Port) | Gerar texto a partir de um prompt | Adaptador Gemini/Groq/Ollama |
+| **LLMProvider** (Port) | Gerar texto a partir de um prompt | Adaptador Ollama/Gemini |
 | **Cache** | Memorizar embeddings (por hash do chunk) e respostas do eval → não gastar quota do free tier em reruns | — (disk/SQLite local) |
-| **RateLimiter/Retry** | Throttle de RPM + backoff em 429 nos adaptadores de nuvem | envolve os adapters Gemini/Groq |
+| **RateLimiter/Retry** | Throttle de RPM + backoff em 429 no adaptador de nuvem | envolve o adapter Gemini (fallback) |
 | **RAGPipeline** | Orquestrar retrieve → montar prompt → gerar → citar | Retriever + LLMProvider |
 | **Evaluator** | Rodar golden set e calcular métricas | RAGPipeline + Cache |
 | **Tracer** | Registrar traces/latência/custo | Langfuse (opcional) ou JSON local |
@@ -237,8 +237,8 @@ class VectorStore(Protocol):
 class LLMProvider(Protocol):
     def generate(self, prompt: str, *, stream: bool = False) -> LLMResponse: ...
 ```
-- Adaptadores: `GeminiLLM` (`gemini-2.5-flash-lite`, free tier), `GroqLLM` (Llama via API OpenAI-compat, free — fallback), `OllamaLLM` (Llama 3.2, local). `AnthropicLLM`/`OpenAILLM` opcionais.
-- Adaptadores de nuvem envolvidos por **RateLimiter/Retry**: throttle de RPM e backoff exponencial em `429`. Fallback opcional Gemini→Groq quando a quota diária (RPD) estoura.
+- Adaptadores: `OllamaLLM` (Llama 3.2, local — **primário**), `GeminiLLM` (`gemini-2.5-flash-lite`, free tier — **fallback de geração**, só no modo `hybrid`). `AnthropicLLM`/`OpenAILLM` opcionais.
+- O adapter de nuvem (Gemini, usado só como fallback) é envolvido por **RateLimiter/Retry**: throttle de RPM e backoff exponencial em `429`. Fallback Ollama→Gemini acionado quando o Ollama está indisponível (e há `GEMINI_API_KEY`); o Ollama primário é local, sem quota.
 - `LLMResponse` carrega `text`, `input_tokens`, `output_tokens`, `model` (para custo *calculado* e tokens/query).
 
 ### 6.7 RAGPipeline (`rag/pipeline.py`) — o coração
@@ -268,7 +268,7 @@ Diretrizes embutidas no template:
 - Aba **Chat**: input + histórico + respostas com fontes expansíveis.
 - Aba **Ingestão**: upload/seleção de pasta + botão "Indexar".
 - Aba **Métricas**: rodar eval + gráficos (latência, custo, Recall@5).
-- Seletor de **modo** (nuvem/local) no sidebar.
+- Seletor de **modo** (`local`/`hybrid`) no sidebar.
 
 ---
 
@@ -284,9 +284,8 @@ Já descritos como `Protocol`s em §6 (Ports). São o contrato estável; adaptad
 ### 7.3 Interfaces externas
 | Serviço | Protocolo | Autenticação | Custo |
 |---------|-----------|--------------|-------|
-| Google Gemini (AI Studio) | HTTPS/REST | API key (`.env`) | free tier (quota RPD/RPM) |
-| Groq | HTTPS/REST (OpenAI-compat) | API key (`.env`) | free tier (fallback) |
-| Ollama | HTTP local | nenhuma | $0, local |
+| Ollama (via Docker) | HTTP local | nenhuma | $0, local — **primário** |
+| Google Gemini (AI Studio) | HTTPS/REST | API key (`.env`) | free tier (quota RPD/RPM) — fallback opcional |
 | Langfuse (opcional) | HTTPS/REST | keys (`.env`) | free tier; ou trace JSON local |
 | ChromaDB | in-process / local | nenhuma | $0, local |
 | OpenAI/Anthropic (opcional) | HTTPS/REST | API key (`.env`) | pago |
@@ -321,19 +320,19 @@ Já descritos como `Protocol`s em §6 (Ports). São o contrato estável; adaptad
 - **Consequência:** setup trivial; migração para pgvector no V2 é só um novo adaptador. Sem lock-in.
 
 ### ADR-03 — Provider-agnostic (Ports & Adapters)
-- **Contexto:** preciso de modo nuvem (qualidade) e local (privacidade/custo zero).
+- **Contexto:** preciso de um primário local (privacidade/custo zero) e de um fallback de nuvem opcional (qualidade).
 - **Decisão:** interfaces `EmbeddingProvider`/`LLMProvider`; adaptadores concretos por config.
-- **Consequência:** trocar Gemini ↔ Groq ↔ Llama (Ollama) é mudar `.env`. Custo de um pouco mais de código inicial. ⚠️ trocar o **embedder** exige reindexar (ver §5.6).
+- **Consequência:** trocar Ollama ↔ Gemini é mudar `.env`. Custo de um pouco mais de código inicial. ⚠️ trocar o **embedder** exige reindexar (ver §5.6).
 
 ### ADR-04 — Métricas como cidadão de primeira classe
 - **Contexto:** o diferencial do projeto é *medir*, não só funcionar.
 - **Decisão:** Evaluator + golden set + tracing desde o início. Como roda no free tier, o custo real é $0 → a métrica de custo é **calculada** (USD equivalente no tier pago) e complementada por **tokens/query** e **consumo de quota (RPD)**.
 - **Consequência:** README ganha números reais + a narrativa "RAG de produção a $0, medido"; base pronta para o eval avançado do V2 (Ragas).
 
-### ADR-07 — Free-tier-first (Gemini + Ollama, Groq de fallback)
-- **Contexto:** projeto de estudante, sem orçamento de API; precisa rodar indefinidamente sem gastar.
-- **Decisão:** nuvem = **Google Gemini free tier**; local = **Ollama**; **Groq** free como fallback quando a quota diária do Gemini estoura. OpenAI/Anthropic ficam como adapters **opcionais** (mesma interface), fora do quickstart.
-- **Consequência:** custo $0 e sem cartão de crédito. A restrição vira **quota** (RPD/RPM/TPM) → exige backoff/retry, throttle e cache (RNF-09, §5.7). Aliases de modelo do Gemini mudam → pinar versão no eval.
+### ADR-07 — Local-first: Ollama (Docker) primário, Gemini free como fallback de geração, sem Groq
+- **Contexto:** projeto de estudante, sem orçamento de API; precisa rodar indefinidamente sem gastar e, de preferência, sem depender de quota externa.
+- **Decisão:** primário = **Ollama** (local, via Docker; $0, sem quota, roda offline) para LLM **e** embeddings; fallback de **geração** = **Google Gemini free tier** (opcional, só no modo `hybrid` e best-effort — nunca embeddings, pois o embedder é a identidade do índice, §5.6). **Sem Groq.** Por padrão o projeto roda com **zero chave de API**. OpenAI/Anthropic ficam como adapters **opcionais** (mesma interface), fora do quickstart.
+- **Consequência:** custo $0, sem cartão de crédito e sem chave obrigatória. A quota (RPD/RPM/TPM) só afeta o **fallback Gemini opcional** → é lá que valem backoff/retry, throttle e cache (RNF-09, §5.7); o caminho primário (Ollama) não tem quota. Aliases de modelo do Gemini mudam → pinar versão no eval.
 
 ### ADR-08 — Langfuse opcional
 - **Contexto:** observabilidade é importante, mas exigir uma 3ª conta/keys externas aumenta o atrito de um V1 gratuito e simples.
@@ -358,7 +357,7 @@ Já descritos como `Protocol`s em §6 (Ports). São o contrato estável; adaptad
 - **Latência:** medir separadamente retrieval vs geração (identificar gargalo).
 - **Tokens/query:** `input_tokens` + `output_tokens` (métrica operacional real no free tier).
 - **Custo/query (calculado):** `input_tokens * preço_in + output_tokens * preço_out` usando a tabela de preços do tier pago — mostra quanto *custaria*; o custo real é **$0**.
-- **Consumo de quota:** quantas queries por dia dentro do RPD do free tier (quando o eval bate o limite, é sinal para usar cache/fallback Groq).
+- **Consumo de quota:** aplica-se **só ao fallback Gemini opcional** (modo `hybrid`) — quantas queries por dia dentro do RPD do free tier (quando o eval bate o limite, é sinal para usar cache ou cair no Ollama local). O caminho primário (Ollama) não tem quota.
 - **Recall@5:** sobre o golden set de 30 perguntas.
 
 ### 10.2 Observabilidade
@@ -386,7 +385,7 @@ Já descritos como `Protocol`s em §6 (Ports). São o contrato estável; adaptad
 |-------|---------|-----------|
 | Escopo inflar (querer V2 no V1) | Projeto não termina | Escopo congelado (doc 00 §Escopo); extras viram issues do V2 |
 | Modelo local não caber na GPU 8GB | Modo local quebra | Usar 3B quantizado / nomic-embed; testar cedo (Fase 0) |
-| **Quota do free tier estourar (RPD/RPM)** | Chat/eval param no meio | Backoff/retry em 429 + throttle RPM + **cache** (§5.7); **fallback Gemini→Groq**; modo local (Ollama) sempre disponível |
+| **Quota do free tier estourar (RPD/RPM)** — só no fallback Gemini | Fallback (modo `hybrid`) para no meio | O primário **Ollama** é local ($0, sem quota) e sempre disponível → nunca depende de free tier. O fallback Gemini opcional tem backoff/retry em 429 + throttle RPM + **cache** (§5.7) |
 | **Trocar embedder invalida o índice** (dims/espaço incompatíveis) | Retrieval retorna lixo silencioso | Coleção por modelo de embedding + validação no boot + reindex ao trocar (§5.6) |
 | **Aliases de modelo do Gemini mudam** | Eval não reproduzível | Pinar a versão do modelo; `temperature=0` no eval |
 | Chunking ruim → Recall baixo | Meta RNF-03 não atingida | Tornar chunking configurável e iterar via eval |

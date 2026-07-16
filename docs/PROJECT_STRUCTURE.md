@@ -18,7 +18,8 @@ personal-rag-assistant/
 ├── 📄 .gitignore                     # ignora data/, .env, __pycache__, .venv...
 ├── 📄 .pre-commit-config.yaml        # hooks: ruff, format, checagens
 ├── 📄 LICENSE                        # MIT
-├── 📄 Makefile                       # atalhos: make ingest / test / run / eval
+├── 📄 Makefile                       # atalhos: make ollama-up / ollama-pull / ingest / test / run / eval
+├── 📄 docker-compose.yml             # sobe o Ollama (LLM + embeddings primários, local)
 │
 ├── 📂 src/
 │   └── 📂 rag_assistant/             # pacote principal
@@ -50,16 +51,15 @@ personal-rag-assistant/
 │       │
 │       ├── 📂 embeddings/            # ADAPTADORES de embedding
 │       │   ├── 📄 __init__.py
-│       │   ├── 📄 gemini_embeddings.py   # text-embedding-004 (free tier)
-│       │   ├── 📄 ollama_embeddings.py   # nomic-embed-text (local)
+│       │   ├── 📄 ollama_embeddings.py   # nomic-embed-text (local, primário — identidade do índice)
+│       │   ├── 📄 gemini_embeddings.py   # text-embedding-004 (opcional; NÃO usado como fallback)
 │       │   ├── 📄 openai_embeddings.py   # OPCIONAL (pago)
 │       │   └── 📄 factory.py         # devolve o provider certo conforme config
 │       │
 │       ├── 📂 llm/                   # ADAPTADORES de LLM
 │       │   ├── 📄 __init__.py
-│       │   ├── 📄 gemini_llm.py      # Gemini free tier (principal cloud)
-│       │   ├── 📄 groq_llm.py        # Groq free (fallback, OpenAI-compat)
-│       │   ├── 📄 ollama_llm.py      # Llama 3.2 local
+│       │   ├── 📄 ollama_llm.py      # Llama 3.2 local (primário)
+│       │   ├── 📄 gemini_llm.py      # Gemini free tier (fallback de geração, modo hybrid)
 │       │   ├── 📄 openai_llm.py      # OPCIONAL (pago)
 │       │   ├── 📄 anthropic_llm.py   # OPCIONAL (pago)
 │       │   └── 📄 factory.py
@@ -131,7 +131,7 @@ personal-rag-assistant/
 │
 ├── 📂 scripts/
 │   ├── 📄 build_golden_set.py        # helper p/ montar o golden_set.json
-│   └── 📄 benchmark.py               # roda comparação nuvem vs local
+│   └── 📄 benchmark.py               # roda comparação local (Ollama) vs fallback (Gemini)
 │
 └── 📂 .github/
     └── 📂 workflows/
@@ -167,18 +167,20 @@ personal-rag-assistant/
 ## `.env.example` (versionado, sem segredos)
 
 ```env
-RAG_MODE=cloud
-LLM_PROVIDER=gemini          # gemini | groq | ollama | (opcional: openai | anthropic)
-EMBEDDING_PROVIDER=gemini    # gemini | ollama | (opcional: openai)
+RAG_MODE=local               # local (só Ollama, offline) | hybrid (Ollama primário + Gemini fallback)
+LLM_PROVIDER=ollama          # ollama | gemini
+EMBEDDING_PROVIDER=ollama    # ollama | gemini
+LLM_FALLBACK_PROVIDER=gemini # usado só em RAG_MODE=hybrid (best-effort)
 
-GEMINI_API_KEY=
-GROQ_API_KEY=                # opcional (fallback)
+# Ollama (via Docker — ver docker-compose.yml)
 OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_LLM_MODEL=llama3.2:3b        # leve: qwen2.5:1.5b | gemma2:2b | llama3.2:1b
+OLLAMA_EMBED_MODEL=nomic-embed-text
 
+# Gemini free tier — OPCIONAL, só para fallback (RAG_MODE=hybrid). Sem isso, roda 100% local.
+GEMINI_API_KEY=
 GEMINI_LLM_MODEL=gemini-2.5-flash-lite
 GEMINI_EMBED_MODEL=text-embedding-004
-OLLAMA_LLM_MODEL=llama3.2
-OLLAMA_EMBED_MODEL=nomic-embed-text
 
 CHUNK_SIZE=800
 CHUNK_OVERLAP=120

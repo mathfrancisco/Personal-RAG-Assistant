@@ -20,9 +20,9 @@
 
 **Personal RAG Assistant** indexa uma pasta de documentos seus (PDF, Markdown, TXT, DOCX) e
 permite conversar com eles. Cada resposta é **ancorada nos seus arquivos** e vem com a **fonte
-citada** — nada de alucinação sem rastro. Roda com modelos na nuvem **de graça** (Google Gemini
-free tier, Groq de fallback) ou **100% localmente** (Ollama + Llama 3.2), sem enviar nada para fora.
-Custo do projeto: **$0**.
+citada** — nada de alucinação sem rastro. Roda **100% local por padrão** (Ollama via Docker + Llama 3.2,
+$0, sem quota, sem enviar nada para fora) e pode usar o **Google Gemini free tier** como fallback de
+geração opcional. Roda com **zero chaves de API** por padrão. Custo do projeto: **$0**.
 
 Projeto construído seguindo um **SDD completo** ([`docs/SDD.md`](docs/SDD.md)) com arquitetura
 provider-agnostic — trocar embedding, LLM ou vector store é uma mudança de configuração.
@@ -42,9 +42,9 @@ provider-agnostic — trocar embedding, LLM ou vector store é uma mudança de c
 - 📄 **Ingestão multi-formato** — PDF, Markdown, TXT, DOCX.
 - 🔍 **Busca semântica** — recupera os trechos mais relevantes (top-k).
 - 💬 **Respostas com citação** — toda resposta aponta arquivo + trecho de origem.
-- 🔒 **Modo local** — Ollama + Llama 3.2, zero chamadas externas.
-- ☁️ **Modo nuvem grátis** — Google Gemini (free tier); Groq como fallback quando a quota do dia acaba.
-- 💸 **Custo $0** — roda inteiro em free tiers; custo em USD é *calculado* para referência.
+- 🔒 **Modo `local`** — Ollama (via Docker) + Llama 3.2, zero chamadas externas, sem quota (default).
+- ☁️ **Modo `hybrid`** — Ollama primário + Google Gemini (free tier) como fallback de geração opcional.
+- 💸 **Custo $0** — roda 100% local via Ollama; o fallback Gemini (free tier) também é $0. Custo em USD é *calculado* para referência.
 - ♻️ **Reindexação incremental** — só reprocessa o que mudou (hash de arquivo).
 - 📊 **Métricas embutidas** — latência, tokens/query, custo calculado e Recall@5 num golden set de 30 perguntas.
 - 🔭 **Observabilidade** — trace ponta a ponta via Langfuse.
@@ -60,7 +60,7 @@ flowchart LR
     UI --> RAG[RAG Pipeline]
     RAG -->|embed query| EMB[Embedding Provider]
     RAG -->|top-k| VS[(Vector Store<br/>ChromaDB)]
-    RAG -->|prompt + contexto| LLM[LLM Provider<br/>Gemini / Groq / Ollama]
+    RAG -->|prompt + contexto| LLM[LLM Provider<br/>Ollama primário · Gemini fallback]
     LLM -->|resposta + fontes| UI
     subgraph Ingestão
       DOCS[/Seus documentos/] --> LD[Loader] --> CH[Chunker] --> EMB --> VS
@@ -78,8 +78,8 @@ flowchart LR
 | Linguagem | Python 3.11+ |
 | Orquestração | LangChain |
 | Vector store | ChromaDB (local) |
-| Embeddings | Google `text-embedding-004` (free) / `nomic-embed-text` (Ollama) |
-| LLM | Gemini (free) · Groq (free, fallback) · Llama 3.2 (Ollama) |
+| Embeddings | `nomic-embed-text` (Ollama, local) |
+| LLM | Ollama (llama3.2:3b, local/Docker) — primário · Gemini free = fallback de geração |
 | Frontend | Streamlit |
 | Observabilidade | Langfuse |
 | Qualidade | pytest · ruff · pre-commit |
@@ -92,8 +92,9 @@ flowchart LR
 ### Pré-requisitos
 - Python 3.11+
 - [uv](https://github.com/astral-sh/uv) instalado
-- **Modo nuvem (grátis):** chave da [Google AI Studio](https://aistudio.google.com/apikey) (Gemini free tier). Opcional: chave [Groq](https://console.groq.com) para fallback.
-- **Modo local:** [Ollama](https://ollama.com) com `llama3.2` e `nomic-embed-text` baixados (`ollama pull llama3.2 && ollama pull nomic-embed-text`)
+- **Docker** (para o Ollama)
+- **Ollama (obrigatório, primário):** roda via Docker — `make ollama-up && make ollama-pull` (baixa `llama3.2:3b` + `nomic-embed-text`). Não precisa de nenhuma chave de API.
+- **Gemini (opcional, só para o fallback do modo `hybrid`):** chave da [Google AI Studio](https://aistudio.google.com/apikey) (free tier).
 
 ### 1. Clonar e instalar
 ```bash
@@ -102,19 +103,25 @@ cd Personal-RAG-Assistant
 uv sync
 ```
 
-### 2. Configurar
+### 2. Subir o Ollama (Docker) — primário
 ```bash
-cp .env.example .env
-# edite .env com suas chaves (ou deixe em modo local)
+make ollama-up      # ou: docker compose up -d
+make ollama-pull    # baixa llama3.2:3b + nomic-embed-text
 ```
 
-### 3. Indexar seus documentos
+### 3. Configurar
+```bash
+cp .env.example .env
+# roda 100% local por padrão; opcional: adicione GEMINI_API_KEY p/ fallback (RAG_MODE=hybrid)
+```
+
+### 4. Indexar seus documentos
 ```bash
 # coloque arquivos em ./data/documents/ e rode:
 uv run rag ingest ./data/documents
 ```
 
-### 4. Perguntar
+### 5. Perguntar
 ```bash
 # via CLI:
 uv run rag ask "Qual o prazo de entrega descrito no contrato X?"
@@ -128,29 +135,34 @@ uv run streamlit run src/rag_assistant/app/streamlit_app.py
 ## 🎛️ Configuração (`.env`)
 
 ```env
-# Modo: "cloud" ou "local"
-RAG_MODE=cloud
+# Modo: "local" (só Ollama, offline) ou "hybrid" (Ollama primário + Gemini fallback)
+RAG_MODE=local
 
-# Providers (todos free)
-LLM_PROVIDER=gemini             # gemini | groq | ollama | (opcional: anthropic | openai)
-EMBEDDING_PROVIDER=gemini       # gemini | ollama | (opcional: openai)
+# Providers. Primário = Ollama (local, $0, sem quota).
+LLM_PROVIDER=ollama          # ollama | gemini
+EMBEDDING_PROVIDER=ollama    # ollama | gemini
+LLM_FALLBACK_PROVIDER=gemini # usado só em RAG_MODE=hybrid (best-effort)
 
-GEMINI_API_KEY=...              # Google AI Studio (free tier)
-GROQ_API_KEY=...                # opcional, fallback quando a quota do Gemini acaba
+# Ollama (via Docker — ver docker-compose.yml)
 OLLAMA_BASE_URL=http://localhost:11434
-
-# Modelos (pinados p/ eval reproduzível)
-GEMINI_LLM_MODEL=gemini-2.5-flash-lite
-GEMINI_EMBED_MODEL=text-embedding-004
-OLLAMA_LLM_MODEL=llama3.2
+OLLAMA_LLM_MODEL=llama3.2:3b        # leve: qwen2.5:1.5b | gemma2:2b | llama3.2:1b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 
-# Chunking
+# Gemini free tier — OPCIONAL, só para fallback (RAG_MODE=hybrid). Sem isso, roda 100% local.
+GEMINI_API_KEY=
+GEMINI_LLM_MODEL=gemini-2.5-flash-lite
+GEMINI_EMBED_MODEL=text-embedding-004
+
+# Chunking / retrieval
 CHUNK_SIZE=800
 CHUNK_OVERLAP=120
 TOP_K=5
 
-# Observabilidade (OPCIONAL — sem keys, cai p/ trace JSON local)
+# Persistência local
+CHROMA_PATH=./data/chroma
+CACHE_PATH=./data/cache
+
+# Observabilidade OPCIONAL — vazio => trace JSON local em ./data/traces
 LANGFUSE_PUBLIC_KEY=
 LANGFUSE_SECRET_KEY=
 ```
@@ -166,7 +178,7 @@ Rode a avaliação sobre o golden set:
 uv run rag eval
 ```
 
-| Métrica | Modo nuvem (Gemini free) | Modo local (Llama 3.2) |
+| Métrica | Fallback Gemini (free) | Local Ollama (llama3.2:3b) |
 |---------|-------------------------:|-----------------------:|
 | Latência média | _preencher_ ms | _preencher_ ms |
 | Tokens médios/query | _preencher_ | _preencher_ |
@@ -196,7 +208,7 @@ personal-rag-assistant/
 
 ## 🗺️ Roadmap
 
-- [x] **V1** — RAG básico, citação de fontes, modo local/nuvem, métricas essenciais.
+- [x] **V1** — RAG básico, citação de fontes, modo local/hybrid, métricas essenciais.
 - [ ] **V2** — Hybrid search (BM25 + dense), reranker, eval suite completo (Ragas/TruLens), dashboard.
 - [ ] **V3** — migração para pgvector, deploy, frontend Next.js.
 

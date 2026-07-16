@@ -12,7 +12,7 @@
 O marco que importa no 1º semestre é: **stack montada, inglês sem dicionário, 12+ papers lidos** e
 **1 projeto público no GitHub com README detalhado**. O Personal RAG V1 é o veículo que amarra tudo isso:
 
-- Te obriga a montar a stack de IA local + APIs de nuvem **de graça** (Ollama, Google Gemini free tier, Groq).
+- Te obriga a montar a stack de IA **local-first** (Ollama via Docker como primário, $0, sem quota) com um fallback de nuvem opcional (Google Gemini free tier).
 - Ensina o padrão arquitetural mais requisitado do mercado atual: **RAG** (Retrieval-Augmented Generation).
 - Gera métricas reais (latência, custo/query, Recall@5) — o que separa "brinquei com LLM" de "sei medir e otimizar".
 - É a **fundação técnica** que o V2 (hybrid search, reranker, eval suite completo) vai evoluir sem reescrever.
@@ -44,7 +44,7 @@ Este é um pacote de **6 documentos**. Leia na ordem sugerida:
 
 1. **Ingere** seus documentos (PDF, Markdown, TXT, DOCX) → quebra em *chunks* → gera *embeddings* → guarda num *vector store* local.
 2. **Recupera** os trechos mais relevantes para uma pergunta (busca por similaridade semântica, top-k).
-3. **Gera** uma resposta ancorada nesses trechos, com **citação da fonte**, usando um LLM (Google Gemini na nuvem — **free tier** — ou Llama 3.2 local via Ollama; Groq como fallback quando a quota diária do Gemini acaba).
+3. **Gera** uma resposta ancorada nesses trechos, com **citação da fonte**, usando um LLM (**Llama 3.2 local via Ollama** — primário, $0, sem quota; **Google Gemini free tier** como fallback de geração opcional no modo `hybrid`).
 4. **Mede** a si mesmo: latência média, tokens/query, consumo de quota do free tier e Recall@5 num conjunto dourado de 30 perguntas. (Custo real = **$0**; o custo em USD é *calculado* para mostrar quanto custaria no tier pago.)
 5. Tudo acessível por uma **interface de chat** (Streamlit).
 
@@ -55,8 +55,8 @@ Este é um pacote de **6 documentos**. Leia na ordem sugerida:
 | Linguagem | **Python 3.11+** | Padrão do ecossistema de IA |
 | Orquestração | **LangChain** | Sinaliza fluência no framework mais usado; LlamaIndex é a alternativa mais "RAG-first" |
 | Vector store | **ChromaDB** (local, zero-config) | Caminho de migração para **pgvector** documentado no SDD |
-| Embeddings | **Google `text-embedding-004`** (free tier) | Grátis; `nomic-embed-text` via Ollama para modo 100% local. ⚠️ trocar de modelo invalida o índice (ver SDD §5.3) |
-| LLM | **Gemini free** + **Ollama (Llama 3.2)** + **Groq** (fallback) | Todos free; provider-agnostic: troca por config. OpenAI/Anthropic viram adapter opcional |
+| Embeddings | **`nomic-embed-text`** (Ollama, local) | Local, $0, sem quota; é a identidade do índice — sem fallback (SDD §5.6). ⚠️ trocar de modelo invalida o índice (ver SDD §5.3) |
+| LLM | **Ollama (Llama 3.2, local/Docker)** primário + **Gemini free** fallback de geração | Local $0; provider-agnostic: troca por config. OpenAI/Anthropic viram adapter opcional |
 | Frontend | **Streamlit** | Rápido de construir; foco é o RAG, não o front |
 | Observabilidade | **Langfuse** | Tracing de cada etapa (retrieval + geração) |
 | Gerência de deps | **uv** | Rápido e moderno; Poetry é a alternativa consagrada |
@@ -71,7 +71,7 @@ O projeto está "pronto o suficiente" quando **todos** os itens abaixo forem ver
 - [ ] Repositório público no GitHub com **README detalhado** (screenshots + GIF de uso).
 - [ ] Pipeline de ingestão funciona para PDF, MD e TXT.
 - [ ] Chat responde com **citação da fonte** (arquivo + trecho).
-- [ ] Funciona em **dois modos**: nuvem (Gemini free tier) e **100% local** (Ollama). Groq disponível como fallback de nuvem.
+- [ ] Funciona em **dois modos**: `local` (100% Ollama, offline) e `hybrid` (Ollama primário + Gemini free como fallback de geração opcional).
 - [ ] **Métricas publicadas** no README: latência média (ms), tokens/query, custo *calculado* (USD, com nota de que o real é $0 no free tier), Recall@5 sobre 30 perguntas.
 - [ ] Testes automatizados passando + CI verde (GitHub Actions).
 - [ ] Config por `.env` (nenhuma chave commitada).

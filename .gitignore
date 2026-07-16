@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Secrets / env
+.env
+
+# Project data (git-ignored per SDD §11) — documentos, índice, cache, traces
+data/
+
+# Generated eval reports (o golden_set.json fica versionado)
+evaluation/reports/
+
+# OS / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

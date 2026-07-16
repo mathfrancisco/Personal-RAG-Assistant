@@ -16,15 +16,13 @@ flowchart TB
         app[Aplicação RAG]
     end
 
-    gemini[(Google Gemini<br/>free tier · embeddings/LLM)]
-    groq[(Groq<br/>free · LLM fallback)]
-    ollama[(Ollama<br/>modelos locais)]
+    ollama[(Ollama · Docker<br/>primário · LLM + embeddings · local $0)]
+    gemini[(Google Gemini<br/>free tier · fallback de geração · opcional)]
     langfuse[(Langfuse<br/>observabilidade · opcional)]
 
     user -->|faz perguntas / ingere docs| app
-    app -->|embeddings + geração| gemini
-    app -->|geração fallback| groq
     app -->|embeddings + geração local| ollama
+    app -.->|fallback de geração opcional| gemini
     app -.->|traces opcionais| langfuse
 ```
 
@@ -59,11 +57,10 @@ flowchart TB
     end
 
     subgraph ADAPTERS[Adaptadores]
-        gemini_emb[Gemini Embeddings]
-        ollama_emb[Ollama Embeddings]
-        gemini_llm[Gemini LLM]
-        groq_llm[Groq LLM - fallback]
-        ollama_llm[Ollama LLM]
+        ollama_emb[Ollama Embeddings - primário]
+        gemini_emb[Gemini Embeddings - opcional]
+        ollama_llm[Ollama LLM - primário]
+        gemini_llm[Gemini LLM - fallback]
         chroma[Chroma Store<br/>coleção por modelo de embedding]
     end
 
@@ -83,18 +80,17 @@ flowchart TB
     pipeline --> ivs
     evaluator --> pipeline
 
-    iemb -.implementado por.-> gemini_emb
     iemb -.implementado por.-> ollama_emb
-    illm -.implementado por.-> gemini_llm
-    illm -.implementado por.-> groq_llm
+    iemb -.implementado por.-> gemini_emb
     illm -.implementado por.-> ollama_llm
+    illm -.implementado por.-> gemini_llm
     ivs -.implementado por.-> chroma
 
+    ollama_emb --> cache
     gemini_emb --> cache
     gemini_emb --> rl
     gemini_llm --> rl
-    groq_llm --> rl
-    gemini_llm -. fallback quota .-> groq_llm
+    ollama_llm -. fallback .-> gemini_llm
 
     pipeline -.trace opcional.-> tracer
     config --> ADAPTERS
@@ -154,9 +150,9 @@ sequenceDiagram
     participant E as EmbeddingProvider
     participant VS as VectorStore
     participant PR as Prompt Builder
+    participant O as Ollama (LLM primário)
     participant RL as RateLimiter/Retry
-    participant G as Gemini (LLM)
-    participant Q as Groq (fallback)
+    participant G as Gemini (fallback · opcional)
     participant T as Tracer (opcional)
 
     U->>UI: "Qual o prazo do contrato X?"
@@ -171,17 +167,20 @@ sequenceDiagram
     else há contexto
         P->>PR: montar prompt (contexto numerado + regras)
         PR-->>P: prompt final
-        P->>RL: generate(prompt, stream=true)
-        RL->>G: chamada (throttle RPM)
-        alt 429 / quota diária (RPD) estourada
-            RL->>RL: backoff + retry
-            RL->>Q: fallback p/ Groq
-            Q-->>RL: resposta + tokens
-        else ok
+        P->>O: generate(prompt, stream=true)
+        alt Ollama responde (primário · $0 · sem quota)
+            O-->>UI: tokens (streaming)
+            O-->>P: resposta + tokens usados
+        else Ollama indisponível E modo hybrid + GEMINI_API_KEY
+            P->>RL: fallback p/ Gemini (throttle RPM)
+            RL->>G: chamada
+            alt 429 / quota diária (RPD) do Gemini
+                RL->>RL: backoff + retry
+            end
             G-->>RL: resposta + tokens
+            RL-->>UI: tokens (streaming)
+            RL-->>P: resposta + tokens usados
         end
-        RL-->>UI: tokens (streaming)
-        RL-->>P: resposta + tokens usados
         P->>P: anexar citações (source, chunk_index)
         P-->>UI: resposta + fontes
     end
@@ -269,9 +268,8 @@ classDiagram
 
     class GeminiEmbeddings
     class OllamaEmbeddings
-    class GeminiLLM
-    class GroqLLM
     class OllamaLLM
+    class GeminiLLM
     class ChromaVectorStore
     class LangfuseTracer
     class JsonTracer
@@ -305,9 +303,8 @@ classDiagram
 
     EmbeddingProvider <|.. GeminiEmbeddings
     EmbeddingProvider <|.. OllamaEmbeddings
-    LLMProvider <|.. GeminiLLM
-    LLMProvider <|.. GroqLLM
     LLMProvider <|.. OllamaLLM
+    LLMProvider <|.. GeminiLLM
     VectorStore <|.. ChromaVectorStore
     Tracer <|.. LangfuseTracer
     Tracer <|.. JsonTracer
@@ -319,10 +316,10 @@ classDiagram
     Retriever --> VectorStore
     Evaluator --> RAGPipeline
     Evaluator --> Cache
+    OllamaEmbeddings --> Cache
     GeminiEmbeddings --> Cache
     GeminiLLM --> RateLimiter
-    GroqLLM --> RateLimiter
-    GeminiLLM ..> GroqLLM : fallback
+    OllamaLLM ..> GeminiLLM : fallback
 ```
 
 ---
@@ -338,12 +335,12 @@ stateDiagram-v2
     Recuperando --> SemContexto: nenhum chunk relevante
     Recuperando --> ComContexto: chunks encontrados
     SemContexto --> Respondida: "não encontrei nos documentos"
-    ComContexto --> Gerando: montar prompt + LLM
-    Gerando --> Backoff: 429 / quota (RPD)
-    Backoff --> Gerando: retry ok
-    Backoff --> Fallback: quota esgotada
-    Fallback --> Respondida: resposta via Groq
+    ComContexto --> Gerando: montar prompt + Ollama (primário)
     Gerando --> Respondida: resposta + citações
+    Gerando --> Fallback: Ollama indisponível (hybrid + key)
+    Fallback --> Backoff: 429 / quota (RPD) do Gemini
+    Backoff --> Fallback: retry ok
+    Fallback --> Respondida: resposta via Gemini
     Respondida --> Rastreada: registrar latência + tokens + custo calc.
     Rastreada --> [*]
 ```
@@ -385,8 +382,8 @@ mindmap
       Ingestão multi-formato
       Busca semântica top-k
       Geração com citação
-      Modo local e nuvem grátis
-      Resiliência de quota (cache, backoff, fallback)
+      Modo local e hybrid - fallback Gemini
+      Resiliência de quota - cache, backoff no fallback
       Métricas essenciais
       Streamlit + CLI
     V2 (extensões)
@@ -406,21 +403,23 @@ mindmap
 ```mermaid
 flowchart TD
     start([ask query]) --> mode{RAG_MODE?}
-    mode -->|local| ollama[Ollama<br/>llama3.2 · $0 · sem quota]
-    mode -->|cloud| gem{Gemini free<br/>dentro da quota?}
-    gem -->|sim| gemok[Gemini responde<br/>throttle RPM]
+    mode -->|local| ollama[Ollama<br/>llama3.2:3b · $0 · sem quota]
+    mode -->|hybrid| tryoll{Ollama<br/>disponível?}
+    tryoll -->|sim| ollama
+    tryoll -->|não| keycheck{GEMINI_API_KEY?}
+    keycheck -->|sim| gem{Gemini free<br/>dentro da quota?}
+    gem -->|sim| gemok[Gemini responde<br/>fallback · throttle RPM · $0]
     gem -->|429 transitório| backoff[backoff + retry]
     backoff --> gem
-    gem -->|RPD esgotada| groqcheck{GROQ_API_KEY?}
-    groqcheck -->|sim| groq[Groq responde<br/>fallback · $0]
-    groqcheck -->|não| deg[degrada p/ Ollama local<br/>ou avisa quota esgotada]
+    gem -->|RPD esgotada| deg[degrada / avisa<br/>quota do fallback esgotada]
+    keycheck -->|não| err[erro: Ollama off<br/>e sem fallback]
     gemok --> done([resposta + tokens])
-    groq --> done
     ollama --> done
     deg --> done
+    err --> done
 ```
 
-> Regra: nenhum caminho leva a provider pago. Custo real permanece **$0**; o pior caso é cair no Ollama local ou esperar o reset diário da quota.
+> Regra: nenhum caminho leva a provider pago. Custo real permanece **$0**; o primário Ollama roda offline, $0, sem quota — o pior caso é o fallback Gemini opcional esbarrar na quota diária.
 
 ---
 

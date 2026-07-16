@@ -1,0 +1,31 @@
+# Ollama como LLM primário do projeto (local, $0, sem quota).
+# Subir:   docker compose up -d       (ou `make ollama-up`)
+# Modelos: make ollama-pull            (baixa llama3.2:3b + nomic-embed-text)
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # --- GPU (NVIDIA RTX 5060) — opcional ---
+    # Requer NVIDIA Container Toolkit + WSL2 (Windows). Sem isto, roda em CPU
+    # (um modelo 3B/1.5B responde tranquilo em CPU, só mais devagar).
+    # Descomente para acelerar:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  ollama-models:
