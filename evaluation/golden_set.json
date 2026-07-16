@@ -1,0 +1,27 @@
+[
+  {
+    "question": "Qual o prazo de entrega previsto no contrato?",
+    "expected_source": "contrato",
+    "out_of_corpus": false
+  },
+  {
+    "question": "Qual a forma de pagamento acordada?",
+    "expected_source": "contrato",
+    "out_of_corpus": false
+  },
+  {
+    "question": "Qual é a política de reembolso descrita no documento?",
+    "expected_source": "politica",
+    "out_of_corpus": false
+  },
+  {
+    "question": "Quem são as partes envolvidas no acordo?",
+    "expected_source": "contrato",
+    "out_of_corpus": false
+  },
+  {
+    "question": "Qual a receita de um bolo de chocolate de três andares?",
+    "expected_source": "",
+    "out_of_corpus": true
+  }
+]

@@ -391,7 +391,7 @@ uv run pytest -m local_only     # garante zero rede
 **Tarefas**
 - [ ] README final com screenshots + **GIF de uso** (`docs/assets/demo.gif`) da Fase 4.
 - [ ] Métricas reais preenchidas no README (tabela da Fase 5).
-- [x] **Docs em `docs/`** (`SDD.md`, `DIAGRAMS.md`, `PROJECT_STRUCTURE.md`, `PROJECT_PLAN.md`, `OVERVIEW.md`), só o `README.md` na raiz. Falta criar `docs/EVALUATION.md` (Fase 5). Links relativos ajustados.
+- [x] **Docs em `docs/`** (`SDD.md`, `DIAGRAMS.md`, `PROJECT_STRUCTURE.md`, `PROJECT_PLAN.md`, `OVERVIEW.md`, `EVALUATION.md`), só o `README.md` na raiz. Links relativos ajustados.
 - [ ] Revisar textos, badges (CI, cobertura, licença), licença.
 - [ ] Post técnico no LinkedIn: o que construiu, decisões (Ports&Adapters, local-first com Ollama), métricas.
 - [ ] Atualizar LinkedIn/headline: "AI Engineer | Building with LLMs".

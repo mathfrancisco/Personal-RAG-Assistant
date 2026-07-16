@@ -26,11 +26,6 @@ def config() -> None:
     typer.echo(f"fallback_enabled   = {s.fallback_enabled}")
 
 
-def _todo(name: str, phase: int) -> None:
-    typer.echo(f"'{name}' ainda não implementado — chega na Fase {phase}.")
-    raise typer.Exit(code=1)
-
-
 @app.command()
 def ingest(path: str) -> None:
     """Indexa uma pasta (ou arquivo) de documentos no vector store."""
@@ -129,9 +124,43 @@ def ask(
 
 
 @app.command("eval")
-def eval_() -> None:
-    """(Fase 5) Roda o golden set e reporta métricas."""
-    _todo("eval", 5)
+def eval_(
+    golden: str = typer.Option(None, "--golden", help="Caminho do golden set JSON."),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Ignora o cache de respostas."),
+) -> None:
+    """Roda o golden set e gera report.md/report.json (Recall@k, tokens, custo, latência)."""
+    from rag_assistant.common.cache import ResponseCache
+    from rag_assistant.embeddings.factory import build_embedding_provider
+    from rag_assistant.evaluation.evaluator import evaluate, load_golden_set
+    from rag_assistant.evaluation.report import to_markdown, write_reports
+    from rag_assistant.llm.factory import build_llm
+    from rag_assistant.vectorstore.chroma_store import ChromaVectorStore
+
+    s = get_settings()
+    items = load_golden_set(golden or s.golden_set_path)
+    embedder = build_embedding_provider(s)
+    store = ChromaVectorStore(s.chroma_path, s.collection_name, s.embedding_model_id)
+    llm = build_llm(s)
+    cache = None if no_cache else ResponseCache(s.answer_cache_path)
+    typer.echo(f"Avaliando {len(items)} perguntas | modelo={llm.model_id} | k={s.top_k}")
+    try:
+        report = evaluate(
+            items,
+            embedder=embedder,
+            store=store,
+            llm=llm,
+            k=s.top_k,
+            provider=s.llm_provider.value,
+            answer_cache=cache,
+        )
+    finally:
+        if cache is not None:
+            cache.close()
+
+    md_path, json_path = write_reports(report, s.eval_report_dir)
+    typer.echo("")
+    typer.echo(to_markdown(report))
+    typer.echo(f"Relatórios salvos: {md_path} · {json_path}")
 
 
 if __name__ == "__main__":

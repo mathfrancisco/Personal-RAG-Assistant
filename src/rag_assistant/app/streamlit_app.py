@@ -100,9 +100,33 @@ def _ingest_tab(settings) -> None:
             status.update(label=report.as_line(), state="complete")
 
 
-def _metrics_tab() -> None:
+def _metrics_tab(settings) -> None:
+    import json
+    from pathlib import Path
+
     st.subheader("📊 Métricas")
-    st.info("Chega na Fase 5 — `rag eval` (Recall@5, tokens, custo, latência).")
+    report_path = Path(settings.eval_report_dir) / "report.json"
+    if not report_path.exists():
+        st.info("Sem relatório ainda. Rode `rag eval` (ou `uv run rag eval`) para gerar.")
+        return
+
+    rep = json.loads(report_path.read_text(encoding="utf-8"))
+    c1, c2, c3 = st.columns(3)
+    c1.metric(f"Recall@{rep['k']}", f"{rep['recall_at_k']:.0%}")
+    c2.metric("Tokens médios (out)", f"{rep['avg_output_tokens']:.0f}")
+    c3.metric("Custo real", "US$ 0.00")
+
+    c4, c5 = st.columns(2)
+    c4.metric("Latência retrieval", f"{rep['avg_retrieval_ms']:.0f} ms")
+    c5.metric("Latência geração", f"{rep['avg_generation_ms']:.0f} ms")
+
+    st.caption(
+        f"Modelo `{rep['model']}` · custo calculado tier pago US$ {rep['total_cost_usd']:.6f}"
+    )
+    if rep.get("results"):
+        st.bar_chart(
+            {"gen_ms": [r["generation_ms"] for r in rep["results"]]},
+        )
 
 
 def main() -> None:
@@ -123,7 +147,7 @@ def main() -> None:
     with ingest:
         _ingest_tab(settings)
     with metrics:
-        _metrics_tab()
+        _metrics_tab(settings)
 
 
 main()

@@ -29,3 +29,23 @@ class EmbeddingCache:
 
     def close(self) -> None:
         self._cache.close()
+
+
+class ResponseCache:
+    """Cache de respostas do LLM por chave já pronta (evita gastar quota em reruns).
+
+    Usado pela avaliação: mesma pergunta+contexto+modelo → mesma resposta, zero
+    chamadas novas no segundo run (determinismo do eval, SDD Fase 5).
+    """
+
+    def __init__(self, path: str) -> None:
+        self._cache = diskcache.Cache(path)
+
+    def get(self, key: str):
+        return self._cache.get(key)
+
+    def put(self, key: str, value) -> None:
+        self._cache.set(key, value)
+
+    def close(self) -> None:
+        self._cache.close()
