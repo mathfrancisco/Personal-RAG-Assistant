@@ -4,15 +4,14 @@
 > com citação de fontes, modo 100% offline e métricas reais de qualidade, custo e latência.
 
 <p align="center">
+  <a href="https://github.com/mathfrancisco/Personal-RAG-Assistant/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mathfrancisco/Personal-RAG-Assistant/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-blue">
   <img alt="LangChain" src="https://img.shields.io/badge/framework-LangChain-green">
   <img alt="Vector Store" src="https://img.shields.io/badge/vectorstore-ChromaDB-orange">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-lightgrey">
-  <img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-black">
 </p>
 
-> 🇬🇧 **Nota estratégica:** para o portfólio público (alvo: mercado US), considere manter este README
-> em **inglês**. Este arquivo está em PT-BR para o planejamento; posso gerar a versão EN quando quiser.
+> 🇬🇧 Read this in **[English](README.en.md)**.
 
 ---
 
@@ -46,9 +45,9 @@ provider-agnostic — trocar embedding, LLM ou vector store é uma mudança de c
 - ☁️ **Modo `hybrid`** — Ollama primário + Google Gemini (free tier) como fallback de geração opcional.
 - 💸 **Custo $0** — roda 100% local via Ollama; o fallback Gemini (free tier) também é $0. Custo em USD é *calculado* para referência.
 - ♻️ **Reindexação incremental** — só reprocessa o que mudou (hash de arquivo).
-- 📊 **Métricas embutidas** — latência, tokens/query, custo calculado e Recall@5 num golden set de 30 perguntas.
-- 🔭 **Observabilidade** — trace ponta a ponta via Langfuse.
-- 🧩 **Provider-agnostic** — arquitetura Ports & Adapters.
+- 📊 **Métricas embutidas** — `rag eval` mede Recall@k, tokens/query, custo calculado e latência (retrieval vs geração) sobre um golden set.
+- 🔭 **Observabilidade** — trace ponta a ponta por query: **JSON local** por padrão (`data/traces/`), **Langfuse** opcional.
+- 🧩 **Provider-agnostic** — arquitetura Ports & Adapters (trocar embedding/LLM/vector store = mudar config).
 
 ---
 
@@ -81,8 +80,8 @@ flowchart LR
 | Embeddings | `nomic-embed-text` (Ollama, local) |
 | LLM | Ollama (llama3.2:3b, local/Docker) — primário · Gemini free = fallback de geração |
 | Frontend | Streamlit |
-| Observabilidade | Langfuse |
-| Qualidade | pytest · ruff · pre-commit |
+| Observabilidade | JSON local (default) · Langfuse (opcional) · structlog |
+| Qualidade | pytest · ruff · pre-commit · GitHub Actions |
 | Deps | uv |
 
 ---
@@ -161,6 +160,8 @@ TOP_K=5
 # Persistência local
 CHROMA_PATH=./data/chroma
 CACHE_PATH=./data/cache
+ANSWER_CACHE_PATH=./data/answer_cache
+TRACES_PATH=./data/traces
 
 # Observabilidade OPCIONAL — vazio => trace JSON local em ./data/traces
 LANGFUSE_PUBLIC_KEY=
@@ -173,9 +174,11 @@ LANGFUSE_SECRET_KEY=
 
 ## 📊 Métricas (exemplo — preencher com resultados reais)
 
-Rode a avaliação sobre o golden set:
+O repositório traz um `evaluation/golden_set.json` **de exemplo** (formato). Monte o seu
+golden set (≥ 30 perguntas sobre o seu corpus), valide e rode a avaliação:
 ```bash
-uv run rag eval
+uv run python scripts/build_golden_set.py   # valida schema/cobertura do golden set
+uv run rag eval                              # gera evaluation/reports/report.md + .json
 ```
 
 | Métrica | Fallback Gemini (free) | Local Ollama (llama3.2:3b) |
@@ -194,12 +197,13 @@ uv run rag eval
 
 ```
 personal-rag-assistant/
-├── src/            # código (ingestão, retrieval, rag, eval, app)
-├── data/           # documentos e vector store (git-ignored)
-├── tests/          # testes automatizados
-├── evaluation/     # golden set + relatórios
-├── docs/           # SDD, diagramas, avaliação
-└── ...             # config, CI, pyproject
+├── src/rag_assistant/   # ingestion · embeddings · vectorstore · retrieval · rag · llm · evaluation · observability · app
+├── data/                # documentos, índice, cache, traces (git-ignored)
+├── tests/               # unit + integração (só fakes/Chroma local — sem rede)
+├── evaluation/          # golden_set.json + reports/ (git-ignored)
+├── scripts/             # hello.py · build_golden_set.py
+├── docs/                # SDD, diagramas, EVALUATION, PUBLISHING, retros
+└── ...                  # pyproject, Makefile, docker-compose, CI
 ```
 
 > Árvore completa e comentada em [`docs/PROJECT_STRUCTURE.md`](docs/PROJECT_STRUCTURE.md).

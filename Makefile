@@ -1,4 +1,4 @@
-.PHONY: install hello config test cov test-local lint fmt ingest ask eval ollama-up ollama-pull ollama-down
+.PHONY: install hello config test cov test-local links lint fmt ingest ask eval ollama-up ollama-pull ollama-down
 
 install:
 	uv sync --dev
@@ -29,6 +29,9 @@ cov:
 
 test-local:
 	uv run pytest -m local_only
+
+links:
+	uv run python scripts/check_links.py
 
 lint:
 	uv run ruff check .
