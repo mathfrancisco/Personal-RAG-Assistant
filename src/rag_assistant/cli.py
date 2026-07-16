@@ -62,9 +62,30 @@ def ingest(path: str) -> None:
 
 
 @app.command()
-def search(query: str) -> None:
-    """(Fase 2) Mostra os top-k trechos para uma pergunta."""
-    _todo("search", 2)
+def search(
+    query: str,
+    k: int = typer.Option(None, "--k", help="Nº de trechos (default: TOP_K da config)."),
+) -> None:
+    """Mostra os top-k trechos mais relevantes para uma pergunta (modo debug)."""
+    from rag_assistant.embeddings.factory import build_embedding_provider
+    from rag_assistant.retrieval.retriever import Retriever
+    from rag_assistant.vectorstore.chroma_store import ChromaVectorStore
+
+    s = get_settings()
+    embedder = build_embedding_provider(s)
+    store = ChromaVectorStore(s.chroma_path, s.collection_name, s.embedding_model_id)
+    retriever = Retriever(embedder, store, s.top_k)
+
+    hits = retriever.retrieve(query, k)
+    if not hits:
+        typer.echo("Nenhum trecho encontrado (índice vazio? rode `rag ingest`).")
+        raise typer.Exit(code=1)
+
+    for rank, h in enumerate(hits, start=1):
+        loc = f"{h.source}" + (f", p.{h.page}" if h.page is not None else "")
+        typer.echo(f"\n[{rank}] score={h.score:.3f} · {loc} · chunk #{h.chunk_index}")
+        snippet = h.text.strip().replace("\n", " ")
+        typer.echo(snippet[:300] + ("…" if len(snippet) > 300 else ""))
 
 
 @app.command()
