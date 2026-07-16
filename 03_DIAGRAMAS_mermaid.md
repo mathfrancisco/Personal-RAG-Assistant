@@ -53,18 +53,23 @@ flowchart TB
         prompts[Prompt Templates]
     end
 
+    subgraph COMMON[Common / resiliência]
+        cache[Cache<br/>embedding + resposta]
+        rl[RateLimiter + Retry<br/>throttle RPM · backoff 429]
+    end
+
     subgraph ADAPTERS[Adaptadores]
         gemini_emb[Gemini Embeddings]
         ollama_emb[Ollama Embeddings]
         gemini_llm[Gemini LLM]
         groq_llm[Groq LLM - fallback]
         ollama_llm[Ollama LLM]
-        chroma[Chroma Store]
+        chroma[Chroma Store<br/>coleção por modelo de embedding]
     end
 
     subgraph INFRA[Infra]
         config[Config / Settings]
-        tracer[Tracer - Langfuse]
+        tracer[Tracer<br/>Langfuse OU JSON local]
         logging[Logging]
     end
 
@@ -85,7 +90,13 @@ flowchart TB
     illm -.implementado por.-> ollama_llm
     ivs -.implementado por.-> chroma
 
-    pipeline --> tracer
+    gemini_emb --> cache
+    gemini_emb --> rl
+    gemini_llm --> rl
+    groq_llm --> rl
+    gemini_llm -. fallback quota .-> groq_llm
+
+    pipeline -.trace opcional.-> tracer
     config --> ADAPTERS
 ```
 
@@ -100,6 +111,7 @@ sequenceDiagram
     participant CLI as CLI / UI
     participant L as Loader
     participant CH as Chunker
+    participant C as Cache
     participant E as EmbeddingProvider
     participant VS as VectorStore
 
@@ -113,9 +125,17 @@ sequenceDiagram
             CLI->>VS: delete_by_source(source)
             CLI->>CH: fragmentar(RawDocument)
             CH-->>CLI: [chunks]
-            CLI->>E: embed_documents([chunks])
-            E-->>CLI: [vetores]
-            CLI->>VS: upsert(chunks + vetores + metadados)
+            loop para cada chunk
+                CLI->>C: get(hash(text)+model)
+                alt cache hit
+                    C-->>CLI: vetor (sem gastar quota)
+                else cache miss
+                    CLI->>E: embed_documents([chunk])
+                    E-->>CLI: vetor
+                    CLI->>C: put(hash+model, vetor)
+                end
+            end
+            CLI->>VS: upsert(chunks + vetores + metadados) [coleção do model]
         end
     end
     CLI-->>U: N documentos indexados (M chunks)
@@ -134,8 +154,10 @@ sequenceDiagram
     participant E as EmbeddingProvider
     participant VS as VectorStore
     participant PR as Prompt Builder
-    participant LLM as LLMProvider
-    participant T as Tracer
+    participant RL as RateLimiter/Retry
+    participant G as Gemini (LLM)
+    participant Q as Groq (fallback)
+    participant T as Tracer (opcional)
 
     U->>UI: "Qual o prazo do contrato X?"
     UI->>P: ask(query)
@@ -144,14 +166,26 @@ sequenceDiagram
     E-->>P: vetor da query
     P->>VS: query(vetor, k=5)
     VS-->>P: top-5 chunks + scores
-    P->>PR: montar prompt (contexto numerado + regras)
-    PR-->>P: prompt final
-    P->>LLM: generate(prompt, stream=true)
-    LLM-->>UI: tokens (streaming)
-    LLM-->>P: resposta + tokens usados
-    P->>P: anexar citações (source, chunk_index)
-    P->>T: registrar latência + custo
-    P-->>UI: resposta + fontes
+    alt nenhum chunk relevante
+        P-->>UI: "não encontrei nos documentos"
+    else há contexto
+        P->>PR: montar prompt (contexto numerado + regras)
+        PR-->>P: prompt final
+        P->>RL: generate(prompt, stream=true)
+        RL->>G: chamada (throttle RPM)
+        alt 429 / quota diária (RPD) estourada
+            RL->>RL: backoff + retry
+            RL->>Q: fallback p/ Groq
+            Q-->>RL: resposta + tokens
+        else ok
+            G-->>RL: resposta + tokens
+        end
+        RL-->>UI: tokens (streaming)
+        RL-->>P: resposta + tokens usados
+        P->>P: anexar citações (source, chunk_index)
+        P-->>UI: resposta + fontes
+    end
+    P->>T: registrar latência + tokens + custo calculado
     UI-->>U: resposta com [1] fonte.pdf, p.3
 ```
 
@@ -227,16 +261,35 @@ classDiagram
         +delete_by_source(source) void
     }
 
+    class Tracer {
+        <<interface>>
+        +start(name) Span
+        +record(latency, tokens, cost)
+    }
+
     class GeminiEmbeddings
     class OllamaEmbeddings
     class GeminiLLM
     class GroqLLM
     class OllamaLLM
     class ChromaVectorStore
+    class LangfuseTracer
+    class JsonTracer
+
+    class Cache {
+        +get(key) Optional~T~
+        +put(key, value) void
+    }
+    class RateLimiter {
+        -rpm_budget
+        +call(fn) T
+        +on_429_backoff()
+    }
 
     class RAGPipeline {
         -retriever
         -llm
+        -tracer
         +ask(query) Answer
     }
     class Retriever {
@@ -246,6 +299,7 @@ classDiagram
     }
     class Evaluator {
         -pipeline
+        -cache
         +run(golden_set) Report
     }
 
@@ -255,12 +309,20 @@ classDiagram
     LLMProvider <|.. GroqLLM
     LLMProvider <|.. OllamaLLM
     VectorStore <|.. ChromaVectorStore
+    Tracer <|.. LangfuseTracer
+    Tracer <|.. JsonTracer
 
     RAGPipeline --> Retriever
     RAGPipeline --> LLMProvider
+    RAGPipeline --> Tracer
     Retriever --> EmbeddingProvider
     Retriever --> VectorStore
     Evaluator --> RAGPipeline
+    Evaluator --> Cache
+    GeminiEmbeddings --> Cache
+    GeminiLLM --> RateLimiter
+    GroqLLM --> RateLimiter
+    GeminiLLM ..> GroqLLM : fallback
 ```
 
 ---
@@ -277,8 +339,12 @@ stateDiagram-v2
     Recuperando --> ComContexto: chunks encontrados
     SemContexto --> Respondida: "não encontrei nos documentos"
     ComContexto --> Gerando: montar prompt + LLM
+    Gerando --> Backoff: 429 / quota (RPD)
+    Backoff --> Gerando: retry ok
+    Backoff --> Fallback: quota esgotada
+    Fallback --> Respondida: resposta via Groq
     Gerando --> Respondida: resposta + citações
-    Respondida --> Rastreada: registrar latência + custo
+    Respondida --> Rastreada: registrar latência + tokens + custo calc.
     Rastreada --> [*]
 ```
 
@@ -319,7 +385,8 @@ mindmap
       Ingestão multi-formato
       Busca semântica top-k
       Geração com citação
-      Modo local e nuvem
+      Modo local e nuvem grátis
+      Resiliência de quota (cache, backoff, fallback)
       Métricas essenciais
       Streamlit + CLI
     V2 (extensões)
@@ -330,6 +397,30 @@ mindmap
       pgvector
       Next.js
 ```
+
+---
+
+## 11. Seleção de Provider & Fallback de Quota
+*Como o modo e a quota do free tier decidem qual LLM responde — e o que garante custo $0.*
+
+```mermaid
+flowchart TD
+    start([ask query]) --> mode{RAG_MODE?}
+    mode -->|local| ollama[Ollama<br/>llama3.2 · $0 · sem quota]
+    mode -->|cloud| gem{Gemini free<br/>dentro da quota?}
+    gem -->|sim| gemok[Gemini responde<br/>throttle RPM]
+    gem -->|429 transitório| backoff[backoff + retry]
+    backoff --> gem
+    gem -->|RPD esgotada| groqcheck{GROQ_API_KEY?}
+    groqcheck -->|sim| groq[Groq responde<br/>fallback · $0]
+    groqcheck -->|não| deg[degrada p/ Ollama local<br/>ou avisa quota esgotada]
+    gemok --> done([resposta + tokens])
+    groq --> done
+    ollama --> done
+    deg --> done
+```
+
+> Regra: nenhum caminho leva a provider pago. Custo real permanece **$0**; o pior caso é cair no Ollama local ou esperar o reset diário da quota.
 
 ---
 
