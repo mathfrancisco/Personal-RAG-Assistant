@@ -27,14 +27,14 @@ O marco que importa no 1º semestre é: **stack montada, inglês sem dicionário
 
 Este é um pacote de **6 documentos**. Leia na ordem sugerida:
 
-| # | Documento | O que responde |
-|---|-----------|----------------|
-| 00 | **Este arquivo** | Visão geral e como tudo se conecta |
-| 01 | [`01_SDD_Personal_RAG_V1.md`](01_SDD_Personal_RAG_V1.md) | **Como** o sistema é projetado (arquitetura, dados, componentes, decisões) |
-| 02 | [`02_README.md`](02_README.md) | **O quê** é o projeto, para quem lê no GitHub (features, quickstart, uso) |
-| 03 | [`03_DIAGRAMAS_mermaid.md`](03_DIAGRAMAS_mermaid.md) | Diagramas visuais (contexto, arquitetura, sequência, dados, classes, Gantt) |
-| 04 | [`04_ESTRUTURA_DO_PROJETO.md`](04_ESTRUTURA_DO_PROJETO.md) | Árvore completa de pastas, subpastas e arquivos, com o papel de cada um |
-| 05 | [`05_PLANO_DE_FASES.md`](05_PLANO_DE_FASES.md) | Execução por fases: tarefas, entregáveis, critério de pronto, cronograma |
+| Documento | O que responde |
+|-----------|----------------|
+| **`OVERVIEW.md`** (este arquivo) | Visão geral e como tudo se conecta |
+| [`SDD.md`](SDD.md) | **Como** o sistema é projetado (arquitetura, dados, componentes, decisões) |
+| [`../README.md`](../README.md) | **O quê** é o projeto, para quem lê no GitHub (features, quickstart, uso) |
+| [`DIAGRAMS.md`](DIAGRAMS.md) | Diagramas visuais (contexto, arquitetura, sequência, dados, classes, Gantt) |
+| [`PROJECT_STRUCTURE.md`](PROJECT_STRUCTURE.md) | Árvore completa de pastas, subpastas e arquivos, com o papel de cada um |
+| [`PROJECT_PLAN.md`](PROJECT_PLAN.md) | Execução por fases: tarefas, entregáveis, critério de pronto, cronograma |
 
 ---
 
@@ -76,7 +76,7 @@ O projeto está "pronto o suficiente" quando **todos** os itens abaixo forem ver
 - [ ] Testes automatizados passando + CI verde (GitHub Actions).
 - [ ] Config por `.env` (nenhuma chave commitada).
 
-> Ver critério de pronto detalhado por fase em [`05_PLANO_DE_FASES.md`](05_PLANO_DE_FASES.md).
+> Ver critério de pronto detalhado por fase em [`PROJECT_PLAN.md`](PROJECT_PLAN.md).
 
 ---
 

@@ -193,4 +193,4 @@ LANGFUSE_SECRET_KEY=
 
 ---
 
-*A estrutura reflete diretamente as camadas do [SDD](01_SDD_Personal_RAG_V1.md) §4 e os componentes §6.*
+*A estrutura reflete diretamente as camadas do [SDD](SDD.md) §4 e os componentes §6.*

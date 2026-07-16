@@ -351,7 +351,7 @@ stateDiagram-v2
 ---
 
 ## 9. Diagrama de Fases (Gantt do 1º semestre)
-*Planejamento temporal — detalhe em `05_PLANO_DE_FASES.md`.*
+*Planejamento temporal — detalhe em `PROJECT_PLAN.md`.*
 
 ```mermaid
 gantt

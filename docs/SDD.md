@@ -143,7 +143,7 @@ Aplicação Python de linha única de responsabilidade: **transformar uma coleç
 | **Tracer** | Registrar traces/latência/custo | Langfuse (opcional) ou JSON local |
 | **UI (Streamlit)** | Chat + ingestão + painel de métricas | RAGPipeline + Evaluator |
 
-> Diagramas completos em [`03_DIAGRAMAS_mermaid.md`](03_DIAGRAMAS_mermaid.md).
+> Diagramas completos em [`DIAGRAMS.md`](DIAGRAMS.md).
 
 ---
 
@@ -179,7 +179,7 @@ Document (1) ──< (N) Chunk
 Chunk (1) ──── (1) Embedding
 ```
 
-> Diagrama ER em [`03_DIAGRAMAS_mermaid.md`](03_DIAGRAMAS_mermaid.md).
+> Diagrama ER em [`DIAGRAMS.md`](DIAGRAMS.md).
 
 ### 5.5 Reindexação incremental
 Antes de reprocessar um arquivo, compara-se `doc_hash`. Se inalterado, pula. Se mudou, remove chunks antigos daquele `source` e reindexa. Evita reembeddar a base inteira toda vez.
@@ -302,7 +302,7 @@ Já descritos como `Protocol`s em §6 (Ports). São o contrato estável; adaptad
 ### 8.2 Fluxo de Query (RAG)
 `pergunta → embed_query → VectorStore.query(k) → montar prompt → LLM.generate → resposta + citações → trace`
 
-> Diagramas de sequência dos dois fluxos em [`03_DIAGRAMAS_mermaid.md`](03_DIAGRAMAS_mermaid.md).
+> Diagramas de sequência dos dois fluxos em [`DIAGRAMS.md`](DIAGRAMS.md).
 
 ---
 
